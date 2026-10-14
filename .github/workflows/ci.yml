@@ -61,7 +61,7 @@ jobs:
         run: docker build -t building-platform:${{ github.sha }} .
 
       - name: Scan image for vulnerabilities
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: building-platform:${{ github.sha }}
           format: table
