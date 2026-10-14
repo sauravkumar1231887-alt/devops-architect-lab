@@ -1,4 +1,35 @@
 
+#name: Building Platform CI
+
+#on:
+ # push:
+  #  branches: [main]
+  #pull_request:
+   # branches: [main]
+
+#permissions:
+ # contents: read
+
+#jobs:
+ # test-and-build:
+  #  runs-on: ubuntu-latest
+
+   # steps:
+    #  - name: Checkout source
+     #   uses: actions/checkout@v4
+
+      #- name: Set up Python
+       # uses: actions/setup-python@v5
+        #with:
+         # python-version: "3.12"
+
+      #- name: Run unit tests
+       # run: python -m unittest discover -s tests -v
+
+      #- name: Build Docker image
+       # run: docker build -t building-platform:${{ github.sha }} .
+
+
 name: Building Platform CI
 
 on:
@@ -12,7 +43,7 @@ permissions:
 
 jobs:
   test-and-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout source
@@ -28,3 +59,12 @@ jobs:
 
       - name: Build Docker image
         run: docker build -t building-platform:${{ github.sha }} .
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: building-platform:${{ github.sha }}
+          format: table
+          exit-code: "0"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
