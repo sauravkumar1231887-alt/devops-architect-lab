@@ -105,7 +105,7 @@ jobs:
         with:
           image-ref: building-platform:${{ github.sha }}
           format: table
-          exit-code: "0"
+          exit-code: "1"
           vuln-type: os,library
           severity: HIGH,CRITICAL
 
