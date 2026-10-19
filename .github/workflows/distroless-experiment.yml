@@ -63,10 +63,6 @@ jobs:
         if: always()
         run: docker rm -f building-platform-test || true
 
-      - name: Install Trivy
-        uses: aquasecurity/setup-trivy@v0.2.3
-        with:
-          version: v0.69.3
 
       - name: Generate vulnerability report
         if: always()
