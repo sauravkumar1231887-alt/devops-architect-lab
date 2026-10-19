@@ -80,11 +80,10 @@ jobs:
             --scanners vuln \
             --severity HIGH,CRITICAL \
             --format table \
-            --output /tmp/trivy-distroless-report.txt \
+            --output /github/workspace/trivy-distroless-report.txt \
             building-platform:distroless-test
 
-          cp /tmp/trivy-distroless-report.txt trivy-distroless-report.txt
-
+         
       - name: Upload Trivy report
         if: always()
         uses: actions/upload-artifact@v4
