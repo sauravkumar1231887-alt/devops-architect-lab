@@ -1,3 +1,4 @@
+
 name: Distroless Experiment
 
 on:
@@ -51,6 +52,7 @@ jobs:
             fi
             sleep 2
           done
+
           echo "Health endpoint did not become ready"
           docker logs building-platform-test
           exit 1
@@ -63,7 +65,6 @@ jobs:
         if: always()
         run: docker rm -f building-platform-test || true
 
-
       - name: Generate vulnerability report
         if: always()
         run: |
@@ -72,18 +73,20 @@ jobs:
             exit 0
           fi
 
+          mkdir -p "${HOME}/.cache/trivy"
+
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v "${HOME}/.cache/trivy:/root/.cache/" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
             aquasec/trivy:0.69.3 \
             image \
             --scanners vuln \
             --severity HIGH,CRITICAL \
             --format table \
-            --output /github/workspace/trivy-distroless-report.txt \
+            --output /workspace/trivy-distroless-report.txt \
             building-platform:distroless-test
 
-         
       - name: Upload Trivy report
         if: always()
         uses: actions/upload-artifact@v4
