@@ -1,74 +1,3 @@
-
-#name: Building Platform CI
-
-#on:
- # push:
-  #  branches: [main]
-  #pull_request:
-   # branches: [main]
-
-#permissions:
- # contents: read
-
-#jobs:
- # test-and-build:
-  #  runs-on: ubuntu-latest
-
-   # steps:
-    #  - name: Checkout source
-     #   uses: actions/checkout@v4
-
-      #- name: Set up Python
-       # uses: actions/setup-python@v5
-        #with:
-         # python-version: "3.12"
-
-      #- name: Run unit tests
-       # run: python -m unittest discover -s tests -v
-
-      #- name: Build Docker image
-       # run: docker build -t building-platform:${{ github.sha }} .
-
-
-#name: Building Platform CI
-
-#on:
- # push:
-  #  branches: [main]
-  #pull_request:
-   # branches: [main]
-
-#permissions:
- # contents: read
-
-#jobs:
- # test-and-build:
-  #  runs-on: ubuntu-24.04
-
-   # steps:
-    #  - name: Checkout source
-     #   uses: actions/checkout@v4
-
-      #- name: Set up Python
-       # uses: actions/setup-python@v5
-        #with:
-         # python-version: "3.12"
-
-      #- name: Run unit tests
-       # run: python -m unittest discover -s tests -v
-
-      #- name: Build Docker image
-       # run: docker build -t building-platform:${{ github.sha }} .
-
-      #- name: Scan image for vulnerabilities
-       # uses: aquasecurity/trivy-action@0.35.0
-        #with:
-         # image-ref: building-platform:${{ github.sha }}
-          #format: table
-          #exit-code: "0"
-          #vuln-type: os,library
-          #severity: HIGH,CRITICAL
-
 name: Building Platform CI
 
 on:
@@ -80,6 +9,7 @@ on:
 permissions:
   contents: read
   packages: write
+  security-events: write
 
 jobs:
   test-and-build:
@@ -100,7 +30,27 @@ jobs:
       - name: Build Docker image
         run: docker build -t building-platform:${{ github.sha }} .
 
-      - name: Scan image for vulnerabilities
+      - name: Full vulnerability report
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: building-platform:${{ github.sha }}
+          format: table
+          output: trivy-full-report.txt
+          exit-code: "0"
+          vuln-type: os,library
+          severity: HIGH,CRITICAL
+          ignore-unfixed: "false"
+
+      - name: Upload vulnerability report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-vulnerability-report
+          path: trivy-full-report.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Security gate - fixable HIGH and CRITICAL
         uses: aquasecurity/trivy-action@0.35.0
         with:
           image-ref: building-platform:${{ github.sha }}
@@ -108,6 +58,7 @@ jobs:
           exit-code: "1"
           vuln-type: os,library
           severity: HIGH,CRITICAL
+          ignore-unfixed: "true"
 
       - name: Log in to GitHub Container Registry
         if: github.event_name == 'push'

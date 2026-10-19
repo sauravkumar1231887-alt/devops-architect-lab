@@ -6,3 +6,8 @@ venv/
 .env
 .coverage
 .pytest_cache/
+
+# Local security scan artifacts
+trivy-report.json
+trivy-full-report.txt
+.github/workflows/ci.yml.backup
