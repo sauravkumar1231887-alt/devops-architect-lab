@@ -71,12 +71,23 @@ jobs:
       - name: Generate vulnerability report
         if: always()
         run: |
-          trivy image \
+          if ! docker image inspect building-platform:distroless-test >/dev/null 2>&1; then
+            echo "Distroless image is unavailable; skipping scan."
+            exit 0
+          fi
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${HOME}/.cache/trivy:/root/.cache/" \
+            aquasec/trivy:0.69.3 \
+            image \
             --scanners vuln \
             --severity HIGH,CRITICAL \
             --format table \
-            --output trivy-distroless-report.txt \
+            --output /tmp/trivy-distroless-report.txt \
             building-platform:distroless-test
+
+          cp /tmp/trivy-distroless-report.txt trivy-distroless-report.txt
 
       - name: Upload Trivy report
         if: always()
