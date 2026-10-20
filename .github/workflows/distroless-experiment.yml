@@ -101,6 +101,28 @@ jobs:
             --output /workspace/trivy-distroless-fixable.txt \
             building-platform:distroless-test
 
+      - name: Generate CycloneDX SBOM
+        if: always()
+        run: |
+          if ! docker image inspect building-platform:distroless-test >/dev/null 2>&1; then
+            echo "Distroless image unavailable; cannot generate SBOM."
+            exit 1
+          fi
+
+          mkdir -p "${HOME}/.cache/trivy"
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${HOME}/.cache/trivy:/root/.cache/trivy" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            aquasec/trivy:0.76.0 \
+            image \
+            --format cyclonedx \
+            --output /workspace/trivy-distroless-sbom.cdx.json \
+            building-platform:distroless-test
+
+          test -s "${GITHUB_WORKSPACE}/trivy-distroless-sbom.cdx.json"
+
       - name: Enforce fixed HIGH/CRITICAL vulnerability policy
         if: always()
         run: |
@@ -124,9 +146,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: distroless-vulnerability-reports
+          name: distroless-security-artifacts
           path: |
             trivy-distroless-full.txt
             trivy-distroless-fixable.txt
+            trivy-distroless-sbom.cdx.json
           if-no-files-found: warn
           retention-days: 14
