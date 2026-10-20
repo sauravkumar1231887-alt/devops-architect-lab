@@ -101,6 +101,25 @@ jobs:
             --output /workspace/trivy-distroless-fixable.txt \
             building-platform:distroless-test
 
+      - name: Enforce fixed HIGH/CRITICAL vulnerability policy
+        if: always()
+        run: |
+          if ! docker image inspect building-platform:distroless-test >/dev/null 2>&1; then
+            echo "Distroless image unavailable; security policy cannot be checked."
+            exit 1
+          fi
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${HOME}/.cache/trivy:/root/.cache/trivy" \
+            aquasec/trivy:0.76.0 \
+            image \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            building-platform:distroless-test
+
       - name: Upload Trivy reports
         if: always()
         uses: actions/upload-artifact@v4
