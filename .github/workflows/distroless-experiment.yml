@@ -45,6 +45,7 @@ jobs:
       - name: Verify health endpoint
         run: |
           for attempt in $(seq 1 15); do
+            echo "Health check attempt ${attempt}/15"
             if curl --fail --silent \
               http://127.0.0.1:18080/health; then
               echo
@@ -65,7 +66,7 @@ jobs:
         if: always()
         run: docker rm -f building-platform-test || true
 
-      - name: Generate vulnerability report
+      - name: Generate full and fixable vulnerability reports
         if: always()
         run: |
           if ! docker image inspect building-platform:distroless-test >/dev/null 2>&1; then
@@ -77,21 +78,36 @@ jobs:
 
           docker run --rm \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "${HOME}/.cache/trivy:/root/.cache/" \
+            -v "${HOME}/.cache/trivy:/root/.cache/trivy" \
             -v "${GITHUB_WORKSPACE}:/workspace" \
-            aquasec/trivy:0.69.3 \
+            aquasec/trivy:0.76.0 \
             image \
             --scanners vuln \
             --severity HIGH,CRITICAL \
             --format table \
-            --output /workspace/trivy-distroless-report.txt \
+            --output /workspace/trivy-distroless-full.txt \
             building-platform:distroless-test
 
-      - name: Upload Trivy report
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${HOME}/.cache/trivy:/root/.cache/trivy" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            aquasec/trivy:0.76.0 \
+            image \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --format table \
+            --output /workspace/trivy-distroless-fixable.txt \
+            building-platform:distroless-test
+
+      - name: Upload Trivy reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: distroless-vulnerability-report
-          path: trivy-distroless-report.txt
+          name: distroless-vulnerability-reports
+          path: |
+            trivy-distroless-full.txt
+            trivy-distroless-fixable.txt
           if-no-files-found: warn
           retention-days: 14
