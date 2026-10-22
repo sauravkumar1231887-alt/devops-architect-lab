@@ -1,0 +1,230 @@
+
+name: Distroless Experiment
+
+on:
+  push:
+    branches:
+      - experiment/distroless
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  distroless-test:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+
+      - name: Build Distroless image
+        run: |
+          docker build \
+            --file Dockerfile.distroless-test \
+            --tag building-platform:distroless-test .
+
+      - name: Verify non-root execution
+        run: |
+          USER_CONFIG=$(docker image inspect building-platform:distroless-test --format '{{.Config.User}}')
+          echo "Configured container user: ${USER_CONFIG}"
+          test -n "${USER_CONFIG}"
+          test "${USER_CONFIG}" != "0"
+          test "${USER_CONFIG}" != "0:0"
+
+      - name: Start container
+        run: |
+          docker run -d \
+            --name building-platform-test \
+            -p 127.0.0.1:18080:8080 \
+            building-platform:distroless-test
+
+      - name: Verify health endpoint
+        run: |
+          for attempt in $(seq 1 15); do
+            echo "Health check attempt ${attempt}/15"
+            if curl --fail --silent \
+              http://127.0.0.1:18080/health; then
+              echo
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Health endpoint did not become ready"
+          docker logs building-platform-test
+          exit 1
+
+      - name: Show container logs
+        if: always()
+        run: docker logs building-platform-test || true
+
+      - name: Cleanup container
+        if: always()
+        run: docker rm -f building-platform-test || true
+
+      - name: Generate full and fixable vulnerability reports
+        if: always()
+        run: |
+          if ! docker image inspect building-platform:distroless-test >/dev/null 2>&1; then
+            echo "Distroless image is unavailable; skipping scan."
+            exit 0
+          fi
+
+          mkdir -p "${HOME}/.cache/trivy"
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${HOME}/.cache/trivy:/root/.cache/trivy" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            aquasec/trivy:0.76.0 \
+            image \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --format table \
+            --output /workspace/trivy-distroless-full.txt \
+            building-platform:distroless-test
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${HOME}/.cache/trivy:/root/.cache/trivy" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            aquasec/trivy:0.76.0 \
+            image \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --format table \
+            --output /workspace/trivy-distroless-fixable.txt \
+            building-platform:distroless-test
+
+      - name: Generate CycloneDX SBOM
+        if: always()
+        run: |
+          if ! docker image inspect building-platform:distroless-test >/dev/null 2>&1; then
+            echo "Distroless image unavailable; cannot generate SBOM."
+            exit 1
+          fi
+
+          mkdir -p "${HOME}/.cache/trivy"
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${HOME}/.cache/trivy:/root/.cache/trivy" \
+            -v "${GITHUB_WORKSPACE}:/workspace" \
+            aquasec/trivy:0.76.0 \
+            image \
+            --format cyclonedx \
+            --output /workspace/trivy-distroless-sbom.cdx.json \
+            building-platform:distroless-test
+
+          test -s "${GITHUB_WORKSPACE}/trivy-distroless-sbom.cdx.json"
+
+      - name: Enforce fixed HIGH/CRITICAL vulnerability policy
+        if: always()
+        run: |
+          if ! docker image inspect building-platform:distroless-test >/dev/null 2>&1; then
+            echo "Distroless image unavailable; security policy cannot be checked."
+            exit 1
+          fi
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${HOME}/.cache/trivy:/root/.cache/trivy" \
+            aquasec/trivy:0.76.0 \
+            image \
+            --scanners vuln \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --exit-code 1 \
+            building-platform:distroless-test
+
+      - name: Save tested image for publishing
+        if: github.event_name == 'push' && github.ref == 'refs/heads/experiment/distroless'
+        run: |
+          docker save \
+            --output "${GITHUB_WORKSPACE}/distroless-image.tar" \
+            building-platform:distroless-test
+
+      - name: Upload tested image for publishing
+        if: github.event_name == 'push' && github.ref == 'refs/heads/experiment/distroless'
+        uses: actions/upload-artifact@v7
+        with:
+          name: tested-distroless-image
+          path: distroless-image.tar
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload Trivy reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: distroless-security-artifacts
+          path: |
+            trivy-distroless-full.txt
+            trivy-distroless-fixable.txt
+            trivy-distroless-sbom.cdx.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  publish-and-attest:
+    name: Publish and attest tested image
+    needs: distroless-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/experiment/distroless'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Download tested image
+        uses: actions/download-artifact@v8
+        with:
+          name: tested-distroless-image
+          path: /tmp/distroless-image
+
+      - name: Load tested Docker image
+        run: docker load --input /tmp/distroless-image/distroless-image.tar
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag and push tested image
+        id: publish
+        env:
+          IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/building-platform-distroless
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          docker tag building-platform:distroless-test "${IMAGE_NAME}:${IMAGE_TAG}"
+          docker push "${IMAGE_NAME}:${IMAGE_TAG}" 2>&1 | tee /tmp/docker-push.log
+
+          DIGEST="$(sed -nE 's/.*digest: (sha256:[0-9a-f]{64})([[:space:]].*)?$/\1/p' /tmp/docker-push.log | tail -n 1)"
+
+          if [[ ! "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "ERROR: Could not determine the pushed image SHA-256 digest."
+            docker image inspect "${IMAGE_NAME}:${IMAGE_TAG}" --format '{{json .RepoDigests}}'
+            exit 1
+          fi
+
+          echo "image_name=${IMAGE_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "digest=${DIGEST}" >> "${GITHUB_OUTPUT}"
+          echo "Published ${IMAGE_NAME}:${IMAGE_TAG}@${DIGEST}"
+
+      - name: Generate signed build provenance
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ steps.publish.outputs.image_name }}
+          subject-digest: ${{ steps.publish.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false
