@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: building-platform-distroless
+  labels:
+    app: building-platform-distroless
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: building-platform-distroless
+  template:
+    metadata:
+      labels:
+        app: building-platform-distroless
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: api
+          image: ghcr.io/sauravkumar1231887-alt/building-platform-distroless@sha256:3154d1a30ac095b4992f78cdf8f91917a2ef5d744821068c62422c7d022481cf
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: building-platform-distroless
+spec:
+  type: ClusterIP
+  selector:
+    app: building-platform-distroless
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
